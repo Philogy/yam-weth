@@ -59,3 +59,10 @@ not have:
   `transferFrom` calls that rely on a granted allowance.
 - Batched wrapping: Outside of `multicall` wrapping WETH on behalf of multiple accounts is made
   highly efficient via the purpose made `depositToMany`  and `depositAmountsToMany` methods.
+
+## Storage Layout
+To save gas a non-standard storage layout is used:
+
+Slot Name | Slot Determination | Values Stored (Bits)
+----|----|----
+Total Supply | `slot = 0` | (95-0: `totalSupply`)
