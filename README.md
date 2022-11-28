@@ -43,3 +43,19 @@ other accounts.
   WETH.withdraw(amount);
   SafeTransferLib.safeTransferETH(to, amount);
   ```
+
+Instead of having to perform these common patterns as distinctive calls YAM-WETH allows contracts to
+directly perform them via a single call.
+
+## Further Features
+Beyond making common patterns more efficient YAM-WETH adds the following features which WETH9 does
+not have:
+- Multicall support: EOAs can safely bundle multiple calls into one transaction.
+- EIP-2612 `permit`s: Allows users to gas-lessly approve contracts
+- [Permit2](https://github.com/Uniswap/permit2) approval by default: Uniswap's Permit2 approval meta
+  router is always approved, saving users the added approval.
+- Primary operator: Allows users to set a primary operator which can spend tokens on their behalf,
+  advantage over `approve` is that `transferFrom` calls by the primary operator are cheaper vs.
+  `transferFrom` calls that rely on a granted allowance.
+- Batched wrapping: Outside of `multicall` wrapping WETH on behalf of multiple accounts is made
+  highly efficient via the purpose made `depositToMany`  and `depositAmountsToMany` methods.
