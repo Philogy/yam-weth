@@ -10,20 +10,30 @@ contract YAM_WETH {
     uint256 internal constant ADDR_MASK = 0x00ffffffffffffffffffffffffffffffffffffffff;
 
     event Transfer(address indexed from, address indexed to, uint256 amount);
+
     bytes32 internal constant TRANSFER_EVENT_SIG = 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef;
 
     event Approval(address indexed owner, address indexed spender, uint256 amount);
+
     bytes32 internal constant APPROVAL_EVENT_SIG = 0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925;
 
     event PrimaryOperatorSet(address indexed account, address indexed prevOperator, address indexed newOperator);
+
     bytes32 internal constant PRIMARY_OPERATOR_EVENT_SIG =
         0x887b30d73fc01ab8c24c20c0b64cdd39b55b1e2b705237e4e4945e634e31ba74;
+
+    /// @notice The reentrancy mutex slot
+    /// @dev Will be removed in favor of transient storage post EIP-1153
+    uint256 private MUTEX;
 
     error InsufficientBalance();
     error InsufficientFreeBalance();
     error InsufficientPermission();
     error ZeroAddress();
     error TotalSupplyOverflow();
+    error NoReentrancy();
+    error LoanExceedsBalance();
+    error OutstandingDebt();
 
     modifier succeeds() {
         _;
@@ -176,13 +186,14 @@ contract YAM_WETH {
                 depositTotal := add(depositTotal, amount)
                 // Checks that `depositTotal += amount` did not overflow and that recipient is
                 // a valid, non-zero address
-                hasErrors := or(
-                    hasErrors,
+                hasErrors :=
                     or(
-                        gt(prevDepositTotal, depositTotal),
-                        or(sub(recipient, and(recipient, ADDR_MASK)), iszero(recipient))
+                        hasErrors,
+                        or(
+                            gt(prevDepositTotal, depositTotal),
+                            or(sub(recipient, and(recipient, ADDR_MASK)), iszero(recipient))
+                        )
                     )
-                )
                 sstore(recipient, add(sload(recipient), amount))
                 mstore(0x00, amount)
                 log3(0x00, 0x20, TRANSFER_EVENT_SIG, 0, recipient)
@@ -391,6 +402,68 @@ contract YAM_WETH {
                 returndatacopy(0x00, 0x00, returndatasize())
                 return(0x00, returndatasize())
             }
+        }
+    }
+
+    /// @notice Sends a flash loan of `amount` WETH to the caller from the `from`
+    ///         address' balance.
+    /// @dev    Reverts if the caller does not repay their loan by the end of the
+    ///         subcontext's execution.
+    ///         Will be updated to use transient storage post EIP-1153.
+    /// @param  from   - The receiver of the flash loan. Must be a contract with a
+    ///                 `flashWeth(uint256)` function.
+    /// @param  amount - The amount of WETH in WEI to be loaned to `msg.sender`.
+    function flashLoan(address from, uint256 amount) external {
+        assembly {
+            // Do not allow nested flash loans
+            if eq(sload(MUTEX.slot), 0x01) {
+                // "NoReentrancy()" error signature
+                mstore(returndatasize(), 0x583fe886)
+                revert(0x1c, 0x04)
+            }
+
+            // Lock the mutex
+            sstore(MUTEX.slot, 0x01)
+
+            // Get the initial WETH balance of the `from` address
+            let fromInitialBalance := sload(from)
+
+            // Do not allow loaning more tokens than `from`'s balance
+            if gt(amount, fromInitialBalance) {
+                // "LoanExceedsBalance()" error signature
+                mstore(returndatasize(), 0x912b4508)
+                revert(0x1c, 0x04)
+            }
+
+            // Update the `from` address' balance
+            sstore(from, sub(fromInitialBalance, amount))
+            // Update the caller's balance
+            sstore(caller(), add(sload(caller()), amount))
+
+            // Store the `flashWeth(uint256)` signature and the `amount`
+            // in scratch space.
+            mstore(returndatasize(), 0xdd27fe7a)
+            mstore(0x20, amount)
+
+            // Call the `from` contract's `flashWeth(uint256)` function.
+            // If the call reverts, bubble up the returndata from the call.
+            if iszero(call(gas(), caller(), returndatasize(), 0x1c, 0x24, returndatasize(), returndatasize())) {
+                returndatacopy(0x00, 0x00, returndatasize())
+                revert(0x00, returndatasize())
+            }
+
+            // Ensure that the loan from the above call's subcontext
+            // has been repaid to the `from` address.
+            if lt(sload(from), fromInitialBalance) {
+                // "OutstandingDebt()" error signature
+                mstore(0x00, 0xe90cbfe8)
+                revert(0x1c, 0x04)
+            }
+
+            // Clear mutex slot
+            sstore(MUTEX.slot, 0x00)
+
+            stop()
         }
     }
 }

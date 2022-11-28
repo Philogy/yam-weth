@@ -3,6 +3,10 @@ pragma solidity 0.8.15;
 
 import {Test} from "forge-std/Test.sol";
 import {YAM_WETH} from "../src/YetAnotherMaximizedWETH.sol";
+import {HonestBorrower} from "./flashloan/HonestBorrower.sol";
+import {ReentrantBorrower} from "./flashloan/ReentrantBorrower.sol";
+import {OverflowBorrower} from "./flashloan/OverflowBorrower.sol";
+import {RunawayBorrower} from "./flashloan/RunawayBorrower.sol";
 
 contract YAM_WETH_Test is Test {
     YAM_WETH weth;
@@ -106,5 +110,64 @@ contract YAM_WETH_Test is Test {
     function setupOperator(address _account, address _operator) internal {
         vm.prank(_account);
         weth.setPrimaryOperator(_operator);
+    }
+
+    ////////////////////////////////////////////////////////////////
+    //                      FLASH LOAN TESTS                      //
+    ////////////////////////////////////////////////////////////////
+
+    /// @notice Tests a successful flash loan
+    function test_flashLoan_repayLoan_success() public {
+        // Deploy a borrower
+        HonestBorrower borrower = new HonestBorrower(weth, address(this));
+
+        // Get 10 WETH
+        vm.deal(address(this), 10 ether);
+        weth.deposit{value: 10 ether}();
+
+        // Start a loan and repay it in full
+        borrower.startLoan(1 ether);
+
+        assertEq(weth.balanceOf(address(this)), 10 ether);
+        assertEq(weth.balanceOf(address(borrower)), 0);
+    }
+
+    /// @notice Ensures that the call to `flashLoan` reverts if it is
+    /// reentered within any subcontext of the original call.
+    function test_flashLoan_reentrancy_reverts() public {
+        ReentrantBorrower borrower = new ReentrantBorrower(weth, address(this));
+
+        // Get 10 WETH
+        vm.deal(address(this), 10 ether);
+        weth.deposit{value: 10 ether}();
+
+        vm.expectRevert(YAM_WETH.NoReentrancy.selector);
+        borrower.startLoan(1 ether);
+    }
+
+    /// @notice Ensures that the call to `flashLoan` reverts if more
+    /// tokens than the `from` address has were requested.
+    function test_flashLoan_overflow_reverts() public {
+        OverflowBorrower borrower = new OverflowBorrower(weth, address(this));
+
+        // Get 10 WETH
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 1 ether}();
+
+        vm.expectRevert(YAM_WETH.LoanExceedsBalance.selector);
+        borrower.startLoan(1 ether);
+    }
+
+    /// @notice Ensures that the call to `flashLoan` reverts if debt is not
+    /// repaid by the end of the subcontext's execution
+    function test_flashLoan_runaway_reverts() public {
+        RunawayBorrower borrower = new RunawayBorrower(weth, address(this));
+
+        // Get 10 WETH
+        vm.deal(address(this), 1 ether);
+        weth.deposit{value: 1 ether}();
+
+        vm.expectRevert(YAM_WETH.OutstandingDebt.selector);
+        borrower.startLoan(1 ether);
     }
 }
