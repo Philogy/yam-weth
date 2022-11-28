@@ -51,7 +51,7 @@ directly perform them via a single call.
 Beyond making common patterns more efficient YAM-WETH adds the following features which WETH9 does
 not have:
 - Multicall support: EOAs can safely bundle multiple calls into one transaction.
-- EIP-2612 `permit`s: Allows users to gas-lessly approve contracts
+- ERC-2612 `permit`s: Allows users to gas-lessly approve contracts
 - [Permit2](https://github.com/Uniswap/permit2) approval by default: Uniswap's Permit2 approval meta
   router is always approved, saving users the added approval.
 - Primary operator: Allows users to set a primary operator which can spend tokens on their behalf,
@@ -66,3 +66,6 @@ To save gas a non-standard storage layout is used:
 Slot Name | Slot Determination | Values Stored (Bits)
 ----|----|----
 Total Supply | `slot = 0` | (95-0: `totalSupply`)
+Main Account Data of `account` | `slot = account` | (255-96: `primaryOperator`, 95-0: `balance`)
+Allowance `spender` for `owner` | `slot = keccak256(abi.encode(owner, spender))` | (255-0: `allowance`)
+ERC-2612 Permit Nonce of `account` | `slot = account << 96` | (255-0: `nonce`)
