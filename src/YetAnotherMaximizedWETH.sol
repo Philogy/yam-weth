@@ -4,8 +4,7 @@ pragma solidity 0.8.15;
 contract YAM_WETH {
     uint256 internal constant TOTAL_SUPPLY_SLOT = 0;
 
-    // TODO: Set real address
-    address internal constant PERMIT2 = 0x5B34BD375516Ef47A12bb8AB066f2Cb528a90E74;
+    address public immutable PERMIT2;
 
     uint256 internal constant BALANCE_MASK = 0xffffffffffffffffffffffff;
     uint256 internal constant ADDR_MASK = 0x00ffffffffffffffffffffffffffffffffffffffff;
@@ -32,6 +31,10 @@ contract YAM_WETH {
             mstore(0x00, 1)
             return(0x00, 0x20)
         }
+    }
+
+    constructor(address _permit2) {
+        PERMIT2 = _permit2;
     }
 
     receive() external payable {
